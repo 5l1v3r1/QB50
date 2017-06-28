@@ -8,6 +8,8 @@
 
 #imports section
 import serial
+import threading
+import time
 
 
 mycall="TA7W  " #...... for BeEagleSAT and ...... for HavelSAT (SSIDs is 0)
@@ -45,7 +47,8 @@ lookUpTable=[] #Array for CCIT CRC16 syndrome
 dataToSend=[]  #Data to be send out to modem
 if hasModem: modemPort=serial.Serial()
 if hasRadio: radioPort=serial.Serial()
-currSequence=0xCA28 #for packet sequencing
+currSequence=0xCA28 #for packet sequencing (initialize)
+
 
 def CRC_Init():
 #prepares the CCIT lookUpTable[]
@@ -133,23 +136,36 @@ def prepareFooter():
     dataToSend.append(192) #append C0 : last character for KISS data end
     return
 
-def main():
-    About()    #print header ads
-    retVal=doChecks() #do definition checks
-    if len(retVal)!=0:
-	for Message in retVal: print "ERROR: ",Message
-	return 0
-    CRC_Init() #prepare the lookup table
+def timeTicks():
+    #timer function to send periodic messages
+    tmr = threading.Timer(1.0, timeTicks)
+    tmr.start()       #start the timer
+    del dataToSend[:] #Data to be send cleared out (deleted) before next turn
     prepareHeader()   #prepare the first part of AX25 message
-    prepareSEQ(currSequence)      #prepare the packet sequence number for payload
+    global currSequence #We shuld update the global current Sequence variable
+    currSequence=prepareSEQ(currSequence)      #prepare the packet sequence number for payload
     preparePayload()  #prepare the payload part
     #TODO calculate the checksum here
     prepareCSUM()
     prepareFooter()
-
-
     #we're done with preparations
     print dataToSend
+
+    return
+
+def main():
+    About()    #print header ads
+    CRC_Init() #prepare the lookup table
+    retVal=doChecks() #do definition checks
+    if len(retVal)!=0:
+	for Message in retVal: print "ERROR: ",Message
+	return 0
+
+    timeTicks() #Start timer events
+    while True:
+     print "I am here"
+     time.sleep(5)
+
 
 if __name__ == '__main__':
     main()
