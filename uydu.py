@@ -12,44 +12,40 @@ import serial
 
 mycall="TA7W  " #...... for BeEagleSAT and ...... for HavelSAT (SSIDs is 0)
 stcall="ON02TR" #ON01TR for BeEagleSAT and ON02TR for HavelSAT (SSIDs is 1)
-hasModem=True   #Do you have a modem connected : Ture/False 
+
+#Do you have a modem connected : Ture/False 
+hasModem=True   
 modem_port ="/dev/ttyUSB0"
 modem_speed=38400
 modem_kiss ="1B 40 4B" #ESC@K
-hasRadio=False  #Do you have a radio connected : True/False
+
+#Do you have a radio connected : True/False
+hasRadio=False  
 radio_port="/dev/ttyUSB1"
 radio_speed=9600
 radio_command="" #insert command for Frequency change
 
 ###SETTINGS for SCS Modem
 #
-# Set flow-control (Hardware flow-control, no XON/XOFF)
-#Z0
-# Disable echoing of commands
-#E0
-# Misc
-#X1  # Enable the PTT line
-#W0  # Minimize the slottime
+#Z0   # Set flow-control (Hardware flow-control, no XON/XOFF)
+#E0   # Disable echoing of commands
+#X1   # Enable the PTT line
+#W0   # Minimize the slottime
 #T100 # Set the TX-Delay to x*10ms
-# Configuration of specific TNC functions
-#@D0 # Set full duplex transmission
-#@F1 # Send flags during pauses
-# Configuration of the Packet-Radio Mode
-#%B9600 
-# Disable TX frequency tracking (should not apply at 1200bps anyway)
-#%T0
-# AFSK amplitude %XA[30-30000] mV
-#%XA2400
-# All modulations amplitude %X[30-30000] mV
-#%X9000
-# Switch to KISS Mode
-#@K
+#@D0  # Set full duplex transmission
+#@F1  # Send flags during pauses
+#%B9600  # Configuration of the Packet-Radio Mode
+#%T0     # Disable TX frequency tracking (should not apply at 1200bps anyway)
+#%XA2400 # AFSK amplitude %XA[30-30000] mV
+#%X9000  # All modulations amplitude %X[30-30000] mV
+#@K      # Switch to KISS Mode
 #C0 00 9E 9C 60 64 A8= A4 60 A8 82 64 9E 94 82 61 03 F0 DB DC 18 0A CA 26 00 05 19 08 01 60 B8 33 C0 
+
 lookUpTable=[] #Array for CCIT CRC16 syndrome
 dataToSend=[]  #Data to be send out to modem
 if hasModem: modemPort=serial.Serial()
 if hasRadio: radioPort=serial.Serial()
-
+currSequence=0xCA28 #for packet sequencing
 
 def CRC_Init():
 #prepares the CCIT lookUpTable[]
@@ -105,6 +101,13 @@ def prepareHeader():
 
     return
 
+def prepareSEQ(Sequence):
+    #Prepare the sequence and insert 2 bytes... we need a new sequence for every transmission
+    Sequence=Sequence+1
+    dataToSend.append(Sequence>>8)      #append first sequence byte
+    dataToSend.append(((Sequence<<8)&0xFF00)>>8) #append second sequence byte
+
+    return Sequence
 
 def preparePayload():
     #Prepare the payload of the AX25 message
@@ -119,6 +122,7 @@ def preparePayload():
     return
 def prepareCSUM():
     #Prepare the CSUM for the payload
+    
     dataToSend.append(255) 
     dataToSend.append(255) 
 
@@ -137,11 +141,14 @@ def main():
 	return 0
     CRC_Init() #prepare the lookup table
     prepareHeader()   #prepare the first part of AX25 message
-
+    prepareSEQ(currSequence)      #prepare the packet sequence number for payload
     preparePayload()  #prepare the payload part
     #TODO calculate the checksum here
     prepareCSUM()
     prepareFooter()
+
+
+    #we're done with preparations
     print dataToSend
 
 if __name__ == '__main__':
