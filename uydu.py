@@ -47,7 +47,7 @@ lookUpTable=[] #Array for CCIT CRC16 syndrome
 dataToSend=[]  #Data to be send out to modem
 if hasModem: modemPort=serial.Serial()
 if hasRadio: radioPort=serial.Serial()
-currSequence=0xCA28 #for packet sequencing (initialize)
+currSequence=0xA25 #for packet sequencing (initialize)
 
 
 def CRC_Init():
@@ -64,11 +64,12 @@ def CRC_Init():
 	if (i & 128) !=0: tmp = tmp ^ 0x9188
 	lookUpTable.append(tmp)
     return
-def calc_csum():
+def calc_CSUM(data,dStart,dLength):
     #Do CheckSum calculations
-    #TODO
-
-    return 0
+    chksum=0xFFFF
+    for dByte in data[dStart:dStart+dLength]:
+      chksum=((chksum<<8)&0xFF00)^(lookUpTable[((chksum>>8)^dByte) & 0x00FF]) 
+    return chksum
 
 def About():
     print "QB50 uplink tester..... by TA7W"
@@ -106,7 +107,8 @@ def prepareHeader():
 
 def prepareSEQ(Sequence):
     #Prepare the sequence and insert 2 bytes... we need a new sequence for every transmission
-    Sequence=Sequence+1
+    SequenceFlags=0xC000 #11...... first two buts of sequence is flags, and it is 0b11000000
+    Sequence=(SequenceFlags|(Sequence+1) ) & 0x00FFFF #keep it 2 bytes
     dataToSend.append(Sequence>>8)      #append first sequence byte
     dataToSend.append(((Sequence<<8)&0xFF00)>>8) #append second sequence byte
 
@@ -123,12 +125,11 @@ def preparePayload():
     dataToSend.append(96) 
 
     return
-def prepareCSUM():
+def prepareCSUM(csData):
     #Prepare the CSUM for the payload
-    
-    dataToSend.append(255) 
-    dataToSend.append(255) 
-
+    csum=calc_CSUM(csData,20,10)
+    dataToSend.append((csum>>8)&0x00FF) #fisrt byte of checksum
+    dataToSend.append(((csum<<8)&0xFF00)<<8) #second byte of checksum
     return
 
 def prepareFooter():
@@ -138,15 +139,14 @@ def prepareFooter():
 
 def timeTicks():
     #timer function to send periodic messages
-    tmr = threading.Timer(1.0, timeTicks)
+    tmr = threading.Timer(0.01, timeTicks)
     tmr.start()       #start the timer
     del dataToSend[:] #Data to be send cleared out (deleted) before next turn
     prepareHeader()   #prepare the first part of AX25 message
     global currSequence #We shuld update the global current Sequence variable
     currSequence=prepareSEQ(currSequence)      #prepare the packet sequence number for payload
     preparePayload()  #prepare the payload part
-    #TODO calculate the checksum here
-    prepareCSUM()
+    prepareCSUM(dataToSend)
     prepareFooter()
     #we're done with preparations
     print dataToSend
@@ -163,7 +163,6 @@ def main():
 
     timeTicks() #Start timer events
     while True:
-     print "I am here"
      time.sleep(5)
 
 
