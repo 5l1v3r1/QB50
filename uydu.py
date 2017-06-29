@@ -137,18 +137,18 @@ def prepareSEQ(Sequence):
 def preparePayload():
     #Prepare the payload of the AX25 message
     #TODO: This is only for GET MODE... extend it for other commands
-    dataToSend.append(0) # 0x00 0x05 0x019 0x08 0x01 0x60 
-    dataToSend.append(5) 
-    dataToSend.append(25)
-    dataToSend.append(8)   #Type 8  - HouseKeeping
-    dataToSend.append(1)   #SubType - always 1
-    dataToSend.append(96)  #Getmode command
+    dataToSend.append(0x00)  # 0x00 0x05 0x019 0x08 0x01 0x60 
+    dataToSend.append(0x05)  #TODO: this is length of GetMode 
+    dataToSend.append(0x0A)  #TODO: describe this byte
+    dataToSend.append(0x08)  #Type 8  - HouseKeeping
+    dataToSend.append(0x01)  #SubType - always 1
+    dataToSend.append(0x60)  #Getmode command 
     return
 
 def prepareCSUM(csData):
     #Prepare the CSUM for the payload
     csum=calc_CSUM(csData,20,10)
-    dataToSend.append((csum>>8)&0x00FF) #fisrt byte of checksum
+    dataToSend.append((csum>>8)&0x00FF)      #fisrt byte of checksum
     dataToSend.append(((csum<<8)&0xFF00)>>8) #second byte of checksum
     return
 
@@ -171,10 +171,9 @@ def prepareModem():
 
 
 def timeTicks():
-    global modemPort                      #
-    prepareModem()                        #prepare the modem for KISS mode with appropriate settings
+    global hasModem
     tmr = threading.Timer(1.0, timeTicks) #timer function to send periodic messages
-    #tmr.start()         #start the timer
+    tmr.start()         #start the timer
     del dataToSend[:]   #Data to be send cleared out (deleted) before next turn
     prepareHeader()     #prepare the first part of AX25 message
     global currSequence #We shuld update the global current Sequence variable
@@ -185,7 +184,7 @@ def timeTicks():
     #we're done with preparations, send the data out to the modem
     print "Seq [%04X]" % currSequence, 
     for dataout in dataToSend:
-	modemPort.write(chr(dataout))
+	if hasModem: modemPort.write(chr(dataout))
 	print "0x%02X" % dataout,
     print ""
     print "Seq [%04X] sent out..." % currSequence
@@ -199,6 +198,7 @@ def main():
     if len(retVal)!=0:
 	for Message in retVal: print "ERROR: ",Message
 	return 0
+    if hasModem: prepareModem()    #prepare the modem for KISS mode with appropriate settings
 
 
     timeTicks() #Start timer events
