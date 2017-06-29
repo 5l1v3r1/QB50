@@ -9,9 +9,14 @@
 #imports section
 import serial
 import threading
+import socket
 import time
 
 
+#CONFIGURATION SECTION ------------ START
+#
+# Please configure all the parameters below accordingly
+#
 mycall="TA7W  " #...... for BeEagleSAT and ...... for HavelSAT (SSIDs is 0)
 stcall="ON02TR" #ON01TR for BeEagleSAT and ON02TR for HavelSAT (SSIDs is 1)
 
@@ -22,10 +27,12 @@ modem_speed=38400
 modem_kiss ="1B 40 4B" #ESC@K
 
 #Do you have a radio connected : True/False
-hasRadio=False
-radio_port="/dev/ttyUSB1"
+hasRadio=True
+radio_port="/tmp/ttyV3"
 radio_speed=9600
-radio_command="" #insert command for Frequency change
+radio_command="FA"        #insert iradio CAT command for Frequency change
+radio_frequency=145935000 #Default start frequency 
+freq_scanRange=10000      #+Freq/-Freq scanning range in Hz (radio_frequency-+freq_scanRange)
 
 ###SETTINGS for SCS Modem
 modemSettings=[]
@@ -42,7 +49,10 @@ modemSettings.append("%XA2400")  #%XA2400 # AFSK amplitude %XA[30-30000] mV
 modemSettings.append("%X9000")   #%X9000  # All modulations amplitude %X[30-30000] mV
 modemSettings.append("@K")       #@K      # Switch to KISS Mode
 
+#Gpredict Radio Services
+gpredict_RadioPort=4532  #Gpredict will connect to us as a radio on this port
 
+#CONFIGURATION SECTION ------------ END
 
 
 #C0 00 9E 9C 60 64 A8= A4 60 A8 82 64 9E 94 82 61 03 F0 DB DC 18 0A CA 26 00 05 19 08 01 60 B8 33 C0 
@@ -50,6 +60,7 @@ modemSettings.append("@K")       #@K      # Switch to KISS Mode
 
 lookUpTable=[] #Array for CCIT CRC16 syndrome
 dataToSend=[]  #Data to be send out to modem
+currentShift=-1*freq_scanRange  #we start with minus shift while the satellite is approaching
 if hasModem: modemPort=serial.Serial()
 if hasRadio: radioPort=serial.Serial()
 currSequence=0xA25 #for packet sequencing (initialize)
@@ -90,7 +101,8 @@ def doChecks():
     if hasModem:
       print "Chechking modem....."
       try:
-	modemPort = serial.Serial(modem_port)
+	modemPort = serial.Serial(modem_port,modem_speed,timeout=1)
+        #'COM3', 38400, timeout=0,parity=serial.PARITY_EVEN, rtscts=1)
  	#modemPort.close()
       except serial.serialutil.SerialException:
         retVal.append("Cannot open Modem port...: %s " % modem_port)
@@ -100,7 +112,7 @@ def doChecks():
     if hasRadio:
       print "Chechking radio....."
       try:
-	radioPort = serial.Serial(modem_port)
+	radioPort = serial.Serial(radio_port,radio_speed,timeout=1)
  	#radioPort.close()
       except serial.serialutil.SerialException:
         retVal.append("Cannot open Radio port...: %s " % radio_port)
@@ -169,10 +181,28 @@ def prepareModem():
         print "ERROR : Problem ocured while trying to configure modem..."
     return
 
+def prepareRadio():
+    #initialize the radio to the starting frequency
+    radioPort.write("%s%011d;"%(radio_command,14195000))
+    print "Radio initialized...."
+    return
+
+def prepareRadioServer():
+    #Starts a TCP server for GREPEDICT to connect as a radio service
+    from radioServer import RadioServer
+    from radioServer import RadioRequestHandler
+    global server
+    address = ('localhost', gpredict_RadioPort) 
+    server = RadioServer(address, RadioRequestHandler)
+    t = threading.Thread(target=server.serve_forever)
+    t.setDaemon(True) 
+    t.start()
+    return
+
 
 def timeTicks():
     global hasModem
-    tmr = threading.Timer(1.0, timeTicks) #timer function to send periodic messages
+    tmr = threading.Timer(0.0, timeTicks) #timer function to send periodic messages
     tmr.start()         #start the timer
     del dataToSend[:]   #Data to be send cleared out (deleted) before next turn
     prepareHeader()     #prepare the first part of AX25 message
@@ -188,6 +218,7 @@ def timeTicks():
 	print "0x%02X" % dataout,
     print ""
     print "Seq [%04X] sent out..." % currSequence
+    print "FRQ %011d  " %  radio_frequency
 
     return
 
@@ -199,7 +230,10 @@ def main():
 	for Message in retVal: print "ERROR: ",Message
 	return 0
     if hasModem: prepareModem()    #prepare the modem for KISS mode with appropriate settings
-
+    if hasRadio: 
+	prepareRadio()    #initialize the radio on initial frequency
+	prepareRadioServer() #start tcp radio server for gpredict t connect
+    
 
     timeTicks() #Start timer events
     while True:
@@ -209,7 +243,8 @@ def main():
 if __name__ == '__main__':
     main()
 
-
+#TODO: program cikisinda soketleri kaat
+#TODO: progam cikisinda portlari kapat
 
 
 
