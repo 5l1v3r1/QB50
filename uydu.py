@@ -17,31 +17,36 @@ stcall="ON02TR" #ON01TR for BeEagleSAT and ON02TR for HavelSAT (SSIDs is 1)
 
 #Do you have a modem connected : Ture/False 
 hasModem=True   
-modem_port ="/dev/ttyUSB0"
+modem_port ="/tmp/ttyV1"
 modem_speed=38400
 modem_kiss ="1B 40 4B" #ESC@K
 
 #Do you have a radio connected : True/False
-hasRadio=False  
+hasRadio=False
 radio_port="/dev/ttyUSB1"
 radio_speed=9600
 radio_command="" #insert command for Frequency change
 
 ###SETTINGS for SCS Modem
-#
-#Z0   # Set flow-control (Hardware flow-control, no XON/XOFF)
-#E0   # Disable echoing of commands
-#X1   # Enable the PTT line
-#W0   # Minimize the slottime
-#T100 # Set the TX-Delay to x*10ms
-#@D0  # Set full duplex transmission
-#@F1  # Send flags during pauses
-#%B9600  # Configuration of the Packet-Radio Mode
-#%T0     # Disable TX frequency tracking (should not apply at 1200bps anyway)
-#%XA2400 # AFSK amplitude %XA[30-30000] mV
-#%X9000  # All modulations amplitude %X[30-30000] mV
-#@K      # Switch to KISS Mode
+modemSettings=[]
+modemSettings.append("Z0")       #Z0   # Set flow-control (Hardware flow-control, no XON/XOFF)
+modemSettings.append("E0")       #E0   # Disable echoing of commands
+modemSettings.append("X1")       #X1   # Enable the PTT line
+modemSettings.append("W0")       #W0   # Minimize the slottime
+modemSettings.append("T100")     #T100 # Set the TX-Delay to x*10ms
+modemSettings.append("@D0")      #@D0  # Set full duplex transmission
+modemSettings.append("@F1")      #@F1  # Send flags during pauses
+modemSettings.append("%B9600")   #%B9600  # Configuration of the Packet-Radio Mode
+modemSettings.append("%T0")      #%T0     # Disable TX frequency tracking (should not apply at 1200bps anyway)
+modemSettings.append("%XA2400")  #%XA2400 # AFSK amplitude %XA[30-30000] mV
+modemSettings.append("%X9000")   #%X9000  # All modulations amplitude %X[30-30000] mV
+modemSettings.append("@K")       #@K      # Switch to KISS Mode
+
+
+
+
 #C0 00 9E 9C 60 64 A8= A4 60 A8 82 64 9E 94 82 61 03 F0 DB DC 18 0A CA 26 00 05 19 08 01 60 B8 33 C0 
+#testing with socat : socat -d -d pty,raw,echo=0,link=/tmp/ttyV0 pty,raw,echo=0,link=/tmp/ttyV1
 
 lookUpTable=[] #Array for CCIT CRC16 syndrome
 dataToSend=[]  #Data to be send out to modem
@@ -77,17 +82,32 @@ def About():
 
 def doChecks():
     retVal = []
+    print "preparing system and configuration checks..."
     if len(mycall) !=6: retVal.append("source Callsign (mycall) must be 6 characters long... If not please fill with spaces.")
     if len(stcall) !=6: retVal.append("Destionation Callsign (stcall) must be 6 characters long... If not please fill with spaces.")
+    #Check modem port availability 
+    global modemPort
+    if hasModem:
+      print "Chechking modem....."
+      try:
+	modemPort = serial.Serial(modem_port)
+ 	#modemPort.close()
+      except serial.serialutil.SerialException:
+        retVal.append("Cannot open Modem port...: %s " % modem_port)
+	pass
+    #Check radio port availability 
+    global radioPort
+    if hasRadio:
+      print "Chechking radio....."
+      try:
+	radioPort = serial.Serial(modem_port)
+ 	#radioPort.close()
+      except serial.serialutil.SerialException:
+        retVal.append("Cannot open Radio port...: %s " % radio_port)
+	pass
+
     return retVal
 	
-def putKISS():
-    #Put modem into kiss mode
-    #TODO
-
-
-    return
-
 def prepareHeader():
     #Prepare the header of the AX25 message
     dataToSend.append(0xC0) #first char FEND for KISS data start
@@ -120,16 +140,16 @@ def preparePayload():
     dataToSend.append(0) # 0x00 0x05 0x019 0x08 0x01 0x60 
     dataToSend.append(5) 
     dataToSend.append(25)
-    dataToSend.append(8) 
-    dataToSend.append(1) 
-    dataToSend.append(96) 
-
+    dataToSend.append(8)   #Type 8  - HouseKeeping
+    dataToSend.append(1)   #SubType - always 1
+    dataToSend.append(96)  #Getmode command
     return
+
 def prepareCSUM(csData):
     #Prepare the CSUM for the payload
     csum=calc_CSUM(csData,20,10)
     dataToSend.append((csum>>8)&0x00FF) #fisrt byte of checksum
-    dataToSend.append(((csum<<8)&0xFF00)<<8) #second byte of checksum
+    dataToSend.append(((csum<<8)&0xFF00)>>8) #second byte of checksum
     return
 
 def prepareFooter():
@@ -137,19 +157,38 @@ def prepareFooter():
     dataToSend.append(192) #append C0 : last character for KISS data end
     return
 
+def prepareModem():
+    #send modem parameters to modem and put it into KISS mode
+    #TODO 
+    print "preparing modem...."
+    global modemPort
+    for modemsetting in modemSettings:
+      try:
+        modemPort.write("%s\n\r" % modemsetting)
+      except:
+        print "ERROR : Problem ocured while trying to configure modem..."
+    return
+
+
 def timeTicks():
-    #timer function to send periodic messages
-    tmr = threading.Timer(0.01, timeTicks)
-    tmr.start()       #start the timer
-    del dataToSend[:] #Data to be send cleared out (deleted) before next turn
-    prepareHeader()   #prepare the first part of AX25 message
+    global modemPort                      #
+    prepareModem()                        #prepare the modem for KISS mode with appropriate settings
+    tmr = threading.Timer(1.0, timeTicks) #timer function to send periodic messages
+    #tmr.start()         #start the timer
+    del dataToSend[:]   #Data to be send cleared out (deleted) before next turn
+    prepareHeader()     #prepare the first part of AX25 message
     global currSequence #We shuld update the global current Sequence variable
     currSequence=prepareSEQ(currSequence)      #prepare the packet sequence number for payload
-    preparePayload()  #prepare the payload part
+    preparePayload()    #prepare the payload part
     prepareCSUM(dataToSend)
     prepareFooter()
-    #we're done with preparations
-    print dataToSend
+    #we're done with preparations, send the data out to the modem
+    print "Seq [%04X]" % currSequence, 
+    for dataout in dataToSend:
+	modemPort.write(chr(dataout))
+	print "0x%02X" % dataout,
+    print ""
+    print "Seq [%04X] sent out..." % currSequence
 
     return
 
@@ -160,6 +199,7 @@ def main():
     if len(retVal)!=0:
 	for Message in retVal: print "ERROR: ",Message
 	return 0
+
 
     timeTicks() #Start timer events
     while True:
